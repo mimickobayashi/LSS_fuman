@@ -1,0 +1,333 @@
+---
+title: "LSS_opencode"
+author: "mkobayashi"
+date: "2023-12-10"
+output: html_document
+---
+
+# load required packages
+```{r}
+library(tidyverse) # data handling and visualization
+library(rvest) # scraping
+library(tm) # text mining
+library(RMeCab) # tokenization
+library(tidytext) # text mining using tidy tools
+library(lsa) # LSA
+library(LSAfun) # applied LSA functions
+library(ggplot2) # R tools for plot
+library(LDAvis) # visualization for LDA
+library(wordVectors) # word2vec
+library(tsne) # t-SNE
+library(readr) # separate csv file's row
+library(dplyr)# tibble function
+library(rsvd)# rsvd
+library(caret)　# normalize vector
+``` 
+
+# define corpus
+```{r}
+# fuman_final_10000 is the text file that contains one document per csv file.
+fuman_corpus <- VCorpus(DirSource(dir = "/home/mkobayashi/taniyama/LSS_fuman/fuman_final_10000"))
+fuman_corpus
+inspect(fuman_corpus[[1]])
+```
+
+# expand corpus into tibble
+```{r}
+dat <- tidy(fuman_corpus) # expand corpus object into tibble
+```
+
+# morphological analysis
+```{r}
+df_id4 <- dat3 %>% RMeCabDF("text", 1)
+df_id_tokens_0 <- purrr::pmap_df(
+  list(
+    nv = df_id4,
+    doc = dat2$id
+  ),
+  function(nv, doc) {
+    tibble(
+      doc = doc,
+      term = nv,
+      PoS = names(nv)
+    )
+  }
+)
+# make data tidy
+tail(df_id_tokens_0, 40)
+```
+
+
+# morphological analysis
+```{r}
+## stopword
+# In this case, the Marimo stopword list is used according to previous studies(Watanabe,2021).
+stopword_jp <- read.csv("~/taniyama/LSS_fuman/watanabe.stop_words.csv", header = FALSE, fileEncoding = "UTF-8-BOM") 
+stopword_jp_add <- data.frame(V1 = c("x"))# add "x" by kobayashi
+stopword_jp <- bind_rows(stopword_jp, stopword_jp_add)
+colnames(stopword_jp) <- "term"
+
+## Define regular expression patterns
+# Unicode character class
+pattern_punct <- "\\p{P}+"
+pattern_digit <- "\\p{N}+"
+
+df_id_tokens_1 <- df_id_tokens_0 %>%
+  anti_join(stopword_jp, by = "term") %>%
+  mutate(term = gsub(pattern_punct, " ", term, perl = TRUE)) %>%
+  mutate(term = gsub(pattern_digit, " ", term, perl = TRUE)) %>%
+  filter(term != "")
+
+df_id_tokens_2 <- df_id_tokens_1 %>%filter(PoS %in% c("名詞", "形容詞", "動詞", "副詞")) 
+
+df_id_tokens_3 <- df_id_tokens_2 %>%group_by(doc, term) 
+
+df_id_tokens_4 <- df_id_tokens_3%>%summarise(count = n()) %>% ungroup()
+# remove stop words, restrict PoS to nouns, adjectives, verbs, and adverbs, and count selected words
+```
+
+
+# After the word deletion process, check how many terms are present.
+```{r}
+df_id_tokens_5<- df_id_tokens_4 %>% select(term) %>% group_by(term) %>% summarise(count = n()) %>% ungroup()
+
+# The first line is always empty, so remove it.
+df_id_tokens_5<- df_id_tokens_5[-1, ]
+
+alltrems_10000<- nrow(df_id_tokens_5)
+histogram_10000 <- hist(df_id_tokens_5$count, breaks=seq(1,20000,10), main = "histogram", xlab = "count", ylab = "frequency")
+
+plot(histogram_10000$breaks[-length(histogram_10000$breaks)], histogram_10000$counts, log = "xy", type = "h",
+     main = "Log-Log Scale Histogram",
+     xlab = "Value (log scale)",
+     ylab = "Frequency (log scale)")
+
+more10_10000<- df_id_tokens_5[df_id_tokens_5$count >= 10, ] %>% nrow()
+1-more10_10000/alltrems_10000
+```
+
+
+# convert frequency table into DTM
+```{r}
+DTM_id <- cast_dtm(df_id_tokens_4, document = "doc", term = "term", value = "count") %>% as.matrix()
+dim(DTM_id)
+```
+
+
+# Only seed words are included in the sentence word matrix even if they occur less than 10 times in the corpus.
+# So only the seed word vector is extracted.
+```{r}
+seedwords <- c("良い", "素敵","素晴らしい", "幸運", "正しい","前向き", 
+               "悪い", "ひどい","粗末","不運", "間違い","ネガティブ")
+
+# Extract columns that match the specified seed words
+DTM_id_seed <- DTM_id[, colnames(DTM_id) %in% seedwords]
+dim(DTM_id_seed)
+
+# What seed words appeared and how many times?
+DTM_id_seed <- as.data.frame(DTM_id_seed)
+col_sums <- colSums(DTM_id_seed) %>% as.data.frame()
+
+# Extract columns that do not match the specified seed words
+DTM_id_notseed <- DTM_id[, !colnames(DTM_id) %in% seedwords]
+dim(DTM_id_notseed)
+```
+
+# form document-feature matrices excluding features that occur less than 10 times in the corpora.
+```{r}
+DTM_id_2 <- as.data.frame(DTM_id_notseed)
+col_sums <- colSums(DTM_id_2)
+
+# Add column-by-column totals as new rows to the data frame.
+DTM_id_2 <- DTM_id_2 %>%
+  bind_rows(col_sums) 
+
+# The first col is always empty, so remove it.
+DTM_id_2<- DTM_id_2[,-1]
+
+# check
+DTM_id_2[10001,]
+
+# Deleted less than 10 occurrences.
+DTM_id_2<- DTM_id_2[, DTM_id_2[10001, ] >= 10]
+
+# check
+DTM_id_2[10001,]
+
+# Delete the 10001 row. 
+DTM_id_2<- DTM_id_2[-10001,]
+
+DTM_id_2 <- as.matrix(DTM_id_2)
+dim(DTM_id_2) 
+
+# Combining DTM
+DTM_id_all <- cbind(DTM_id_2, DTM_id_seed)
+dim(DTM_id_all)
+```
+
+# LSA
+```{r}
+# Set to 300 dimensions
+myLSAspace_300 <- lsa(t(DTM_id_all), dims = 300)
+```
+
+# calculate similarities between words
+```{r}
+V_lsa <- t(myLSAspace_300$tk)
+dim(V_lsa) 
+head(V_lsa)
+
+## normalization
+# Function to normalize a matrix of orthogonal bases
+  normalizeOrthogonalMatrix <- function(orthogonal_matrix) {
+    num_cols <- ncol(orthogonal_matrix)
+    col_names <- colnames(orthogonal_matrix)
+    normalized_matrix <- matrix(0, nrow = nrow(orthogonal_matrix), ncol = num_cols)
+    for (i in 1:num_cols) {
+    column <- orthogonal_matrix[, i]
+    normalized_column <- column / sqrt(sum(column^2))
+    normalized_matrix[, i] <- normalized_column
+  }
+
+  # Set original column name to normalized matrix
+  colnames(normalized_matrix) <- col_names
+
+  return(normalized_matrix)
+  }
+
+normalized_matrix.fuman_lsa<- normalizeOrthogonalMatrix(V_lsa)
+
+# check
+dim(normalized_matrix.fuman_lsa)
+```
+
+# automatic generation of a dictionary of polarity
+```{r}
+# Specify seed word
+worst <- c("悪い", "ひどい","粗末","不運", "間違い","ネガティブ")
+best <- c("良い", "素敵","素晴らしい", "幸運", "正しい","前向き")
+polars_slice <- normalized_matrix.fuman_lsa[,c(worst,best)]
+polars_slice
+
+# check　dim
+dim(normalized_matrix.fuman_lsa)
+dim(polars_slice) 
+
+## define audic_watanabe
+# audic_watanabe is a matrix whose elements are the cosine similarities between words and seed words.
+autodic_watanabe <- t(t(polars_slice) %*% normalized_matrix.fuman_lsa) %>% 
+  as.data.frame() %>% 
+  mutate(across(1:6, ~ . * -1)) %>%
+  mutate(polarity = rowMeans(.))
+```
+
+# polarity value of the 100 document
+```{r}
+# Get a list of text files in a directory
+text_dir <- "/home/mkobayashi/taniyama/LSS_fuman/fuman_finaltext_100/"  
+# Path of directory where text files are stored
+text_files <- list.files(text_dir, pattern = ".csv", full.names = TRUE)
+
+# Initialize data frame to store text and emotional polarity values
+results <- data.frame(Text = character(), Sentiment = numeric())
+
+
+## Calculate emotional polarity values for each text file
+for (text_i in text_files) {
+  
+  # Pass text to RMeCabFreq
+  text1 <- RMeCabFreq(text_i)
+  
+  # get autodic_watanabe row names
+  row_names <- rownames(autodic_watanabe)
+  
+  # Initialize variables to store emotional polarity values and frequency of occurrence
+  sentiment_values <- numeric()
+  freq <- numeric()
+  
+  # Calculate the emotional polarity value of each word
+  for (word in text1$Term) {
+    # Check if word exists in autodic_watanabe
+    if (word %in% row_names) {
+      # Get the word's emotional polarity value
+      row_index <- which(row_names == word)  # Get the index of the row where word exists
+      polarity <- autodic_watanabe[row_index, "polarity"]  
+      # Get the value of the polarity column corresponding to row index
+      
+      # Get the number of occurrences of a word
+      word_count <- text1$Freq[text1$Term == word]
+      freq <- c(freq, word_count)
+      
+      # Weighted by frequency
+      weighted_polarity <- polarity * word_count
+      sentiment_values <- c(sentiment_values, weighted_polarity)
+    }
+  }
+  
+  # Calculate the emotional polarity value of the entire sentence
+  sentiment_score <- sum(sentiment_values) / sum(freq)
+  
+  # Add results to data frame
+  result <- data.frame(Text = text_i , Sentiment = sentiment_score)
+  results <- rbind(results, result)
+}
+
+# Show Results
+print(results)
+```
+
+
+# polarity value of the all document(10000)
+```{r}
+# Get the list of text files in the directory
+text_dir_all <- "/home/mkobayashi/taniyama/LSS_fuman/fuman_final_10000/"
+# Path of directory where text files are stored
+text_files_all <- list.files(text_dir_all, pattern = ".csv", full.names = TRUE)
+
+# Initialize a data frame to store text and sentiment polarity values
+results_all <- data.frame(Text = character(), Sentiment = numeric())
+
+# Calculate sentiment polarity for each text file
+for (text_i in text_files_all) {
+
+  # Pass text to RMeCabFreq
+  text1 <- RMeCabFreq(text_i)
+
+  # Get autodic_watanabe row names
+  row_names <- rownames(autodic_watanabe)
+
+  # Initialize variables to store sentiment polarity values and frequency
+  sentiment_values <- numeric()
+  freq <- numeric()
+
+  # Calculate sentiment polarity for each word
+  for (word in text1$Term) {
+    # Check if the word exists in autodic_watanabe
+    if (word %in% row_names) {
+      # Get the sentiment polarity value for the word
+      row_index <- which(row_names == word)
+      polarity <- autodic_watanabe[row_index, "polarity"]
+
+      # Get the frequency of the word
+      word_count <- text1$Freq[text1$Term == word]
+      freq <- c(freq, word_count)
+
+      # Weighted polarity based on frequency
+      weighted_polarity <- polarity * word_count
+      sentiment_values <- c(sentiment_values, weighted_polarity)
+    }
+  }
+
+  # Calculate the overall sentiment polarity for the entire text
+  sentiment_score <- sum(sentiment_values) / sum(freq)
+
+  # Add the result to the data frame
+  result_all <- data.frame(Text = text_i , Sentiment = sentiment_score)
+  results_all <- rbind(results_all, result_all)
+}
+
+# Display the results
+print(results_all)
+```
+
+
