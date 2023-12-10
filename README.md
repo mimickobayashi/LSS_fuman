@@ -12,7 +12,7 @@
 
 ## 先行研究
 
-関連する先行研究は、以下の論文で確認できます：
+関連する先行研究は、以下の論文です：
 
 Watanabe, K. (2021). Latent semantic scaling: A semisupervised text analysis technique for new domains and languages, Communication Methods and Measures, 15(2), 81–102. [https://doi.org/10.1080/19312458.2020.1832976](https://doi.org/10.1080/19312458.2020.1832976)
 
