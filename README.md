@@ -13,6 +13,7 @@ The data used in this project is the "Dissatisfaction Survey Dataset" provided b
 ## Previous Research
 
 Relevant previous research can be found in the following publication:
+
 Watanabe, K. (2021). Latent semantic scaling: A semisupervised text analysis technique for new domains and languages, Communication Methods and Measures, 15(2), 81–102. [https://doi.org/10.1080/19312458.2020.1832976](https://doi.org/10.1080/19312458.2020.1832976)
 
 
