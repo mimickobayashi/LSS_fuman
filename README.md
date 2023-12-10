@@ -1,4 +1,4 @@
-# Dissatisfaction Prediction Project
+# Predicting dissatisfaction using Latent Semantic Scaling 
 
 This repository provides code related to Mizuki Kobayashi's graduation thesis, "Predicting Dissatisfaction using Latent Semantic Scaling (LSS) based Emotion Polarity Values."
 
