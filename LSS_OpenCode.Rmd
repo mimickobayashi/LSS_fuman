@@ -37,6 +37,13 @@ inspect(fuman_corpus[[1]])
 dat <- tidy(fuman_corpus) # expand corpus object into tibble
 ```
 
+# convert character encoding from utf-8 to shift-jis
+```{r}
+dat2 <- dat %>% as.data.frame() # character encoding is utf-8 at this point
+write.csv(dat2, "dat2.csv", row.names = F)
+dat3 <- read.csv("dat2.csv", header = T) # character encoding is now shift-jis
+```
+
 # morphological analysis
 ```{r}
 df_id4 <- dat3 %>% RMeCabDF("text", 1)
